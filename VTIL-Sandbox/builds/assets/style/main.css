@@ -1,0 +1,101 @@
+
+* {
+    color: white;
+    font-family: Consolas, monaco, monospace;
+}
+
+body {
+    background-color: #1e272e;
+}
+
+::-webkit-scrollbar {
+  width: 15px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1; 
+}
+::-webkit-scrollbar-thumb {
+  background: #888; 
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555; 
+}
+
+.basic-block {
+    font-size: 1em;
+}
+  
+.ins-opcode {
+    font-weight: bold;
+    text-transform: uppercase;
+    width: auto;
+    padding-right: 5em;
+}
+
+.ins-opcode-default {
+    color: white;
+}
+
+.ins-opcode-volatile {
+    color: red;
+}
+
+
+.ins-adr {
+    width: auto;
+}
+.ins-adr-directive {
+    color: #808e9b;
+}
+
+.ins-adr-vm-ip {
+    color: #d2dae2;
+}
+
+.ins-sp {
+    padding-left:  2em;
+    padding-right: 10em;
+}
+.ins-sp-reset {
+    color: #ff5e57;
+}
+
+.ins-sp-balanced {
+    color: white;
+}
+
+.ins-sp-negative {
+    color: #f53b57;
+}
+
+.ins-sp-positive {
+    color: #575fcf;
+}
+
+.ins-op {
+    width: auto;
+    padding-right: 5em;
+}
+.ins-op-sp {
+    color: #575fcf;
+}
+
+.ins-op-physical-reg {
+    color: #ef5777;
+}
+
+.ins-op-virtual-reg {
+    color: #05c46b;
+}
+
+.ins-op-sp-off-real {
+    color: #ff5e57;
+}
+
+.ins-op-sp-off-virtual {
+    color: #d2dae2;
+}
+
+.ins-op-immediate {
+    color: #0fbcf9;
+}

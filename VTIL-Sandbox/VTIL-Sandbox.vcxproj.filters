@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="lambda_event_listener.cpp">
+      <Filter>Web</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Resources">
+      <UniqueIdentifier>{bd6418c6-5873-464d-a81a-bd24dd14b006}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Web">
+      <UniqueIdentifier>{07346deb-b68d-43a4-bf00-2484434028d5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Web\Types">
+      <UniqueIdentifier>{80ef44f2-a8a5-4aee-a393-eb503dbe2762}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="resource.h">
+      <Filter>Resources</Filter>
+    </ClInclude>
+    <ClInclude Include="bindings\basic_block.hpp">
+      <Filter>Web\Types</Filter>
+    </ClInclude>
+    <ClInclude Include="bindings\basic_types.hpp">
+      <Filter>Web\Types</Filter>
+    </ClInclude>
+    <ClInclude Include="bindings\instruction.hpp">
+      <Filter>Web\Types</Filter>
+    </ClInclude>
+    <ClInclude Include="bindings\instruction_desc.hpp">
+      <Filter>Web\Types</Filter>
+    </ClInclude>
+    <ClInclude Include="bindings\operand.hpp">
+      <Filter>Web\Types</Filter>
+    </ClInclude>
+    <ClInclude Include="lambda_event_listener.hpp">
+      <Filter>Web</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="VTIL-Sandbox.rc">
+      <Filter>Resources</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="application.ico">
+      <Filter>Resources</Filter>
+    </Image>
+  </ItemGroup>
+</Project>

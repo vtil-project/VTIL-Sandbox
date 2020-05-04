@@ -1,0 +1,29 @@
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="style/menu.css">
+  </head>
+  <body>
+
+    <!-- 
+      All SVG icons are from https://www.flaticon.com/authors/pixel-perfect.
+    -->
+    <h3>View</h3>
+    <ul>
+      <li data-dst="text.html" class="nav-button"><img class="icon" src="resources/text.svg"/>Text View</li>
+      <li data-dst="graph.html" class="nav-button"><img class="icon" src="resources/graph.svg"/>Graph View</li>
+      <li class="" onclick="vtil.reload()"><img class="icon" src="resources/reload.svg"/>Reload</li>
+    </ul>
+    
+    <h3>Misc</h3>
+    <ul>
+      <li class="" onclick="vtil.save()"><img class="icon" src="resources/save.svg"/>Save</li>
+      <li class="" onclick="vtil.load()"><img class="icon" src="resources/load.svg"/>Load</li>
+      <li class="" onclick="vtil.run()"><img class="icon" src="resources/script.svg"/>Run Script</li>
+      <li class="" onclick="vtil.optimize()"><img class="icon" src="resources/optimize.svg"/>Optimize (Default)</li>
+    </ul>
+
+    <script src="scripts/menu.js"></script>
+  </body>
+</html>
