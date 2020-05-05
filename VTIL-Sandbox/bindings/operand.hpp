@@ -12,22 +12,23 @@ namespace vtil::js
 
 		output[ "type" ] = value.is_register() ? "reg" : "imm";
 		output[ "text" ] = value.to_string().data();
-		output[ "bit_count" ] = value.is_register() ? value.reg.bit_count : value.imm.bit_count;
-		output[ "bit_offset" ] = value.is_register() ? value.reg.bit_offset : 0;
+		output[ "bit_count" ] = value.is_register() ? value.reg().bit_count : value.imm().bit_count;
+		output[ "bit_offset" ] = value.is_register() ? value.reg().bit_offset : 0;
 		
 		if ( value.is_register() )
 		{
-			output[ "local_id" ] = as_js( value.reg.local_id );
-			output[ "is_physical" ] = value.reg.is_physical();
-			output[ "is_local" ] = value.reg.is_local();
-			output[ "is_flags" ] = value.reg.is_flags();
-			output[ "is_stack_pointer" ] = value.reg.is_stack_pointer();
-			output[ "is_volatile" ] = value.reg.is_volatile();
-			output[ "is_read_only" ] = value.reg.is_read_only();
+			auto& reg = value.reg();
+			output[ "local_id" ] = as_js( reg.local_id );
+			output[ "is_physical" ] = reg.is_physical();
+			output[ "is_local" ] = reg.is_local();
+			output[ "is_flags" ] = reg.is_flags();
+			output[ "is_stack_pointer" ] = reg.is_stack_pointer();
+			output[ "is_volatile" ] = reg.is_volatile();
+			output[ "is_read_only" ] = reg.is_read_only();
 		}
 		else
 		{
-			output[ "i64" ] = as_js( value.imm.i64 );
+			output[ "i64" ] = as_js( value.imm().i64 );
 		}
 
 		return JSValue( std::move( output ) );
