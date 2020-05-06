@@ -1,5 +1,7 @@
+#include <memory>
 #include <vtil/amd64>
 #include <vtil/vtil>
+#include <vtil/arch>
 #include <Windows.h>
 #include <fstream>
 #include <AppCore/App.h>
@@ -30,7 +32,7 @@ RefPtr<Overlay> overlay_view;
 // Current VTIL routine we're inspecting.
 //
 std::wstring file_name;
-std::unique_ptr<vtil::routine> routine;
+vtil::routine* routine;
 
 // Path to assets and the common event listener.
 //
@@ -77,11 +79,31 @@ std::wstring pop_file_dialogue( const wchar_t* filter )
 //
 bool load_routine( const std::wstring& path )
 {
-    try
+
+    vtil::basic_block* blk = vtil::basic_block::begin( 0x100 );
+    auto [t0, t1] = blk->tmp( 64, 64 );
+
+    blk->pop( t0 )
+        ->mov( t1, t0 )
+        ->jmp( t0 );
+
+
+    blk->fork( 0x200 )
+        ->vexit( 0x1337 );
+
+        blk->fork( 0x300 )
+        ->vexit( 0x1337  );
+
+    vtil::debug::dump(blk->owner);
+
+
+    routine = blk->owner;
+
+    /*try
     {
         // Create the input file stream and try deserializing.
         //
-        std::ifstream fs( path, std::ios::binary );
+        std::ifstream fs( "test.vtil", std::ios::binary );
         vtil::routine* output = nullptr;
         vtil::deserialize( fs, output );
 
@@ -96,7 +118,10 @@ bool load_routine( const std::wstring& path )
     catch ( const std::exception & ex )
     {
         return false;
-    }
+    }*/
+
+
+    return true;
 }
 
 // Exports the menu API.
