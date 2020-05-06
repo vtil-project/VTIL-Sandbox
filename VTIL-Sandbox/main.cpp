@@ -91,7 +91,7 @@ bool load_routine( const std::wstring& path )
     blk->fork( 0x200 )
         ->vexit( 0x1337 );
 
-        blk->fork( 0x300 )
+    blk->fork( 0x300 )
         ->vexit( 0x1337  );
 
     vtil::debug::dump(blk->owner);

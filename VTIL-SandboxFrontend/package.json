@@ -1,0 +1,23 @@
+{
+  "name": "vtil-sandbox",
+  "version": "1.0.0",
+  "description": "Frontend code for the VTIL Sandbox",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vtil-project/VTIL-Sandbox.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/vtil-project/VTIL-Sandbox/issues"
+  },
+  "homepage": "https://github.com/vtil-project/VTIL-Sandbox#readme",
+  "devDependencies": {
+    "webpack": "^4.43.0",
+    "webpack-cli": "^3.3.11"
+  }
+}
