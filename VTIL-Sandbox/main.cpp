@@ -15,19 +15,18 @@
 
 // Default state of the views.
 //
-const std::wstring default_menu_path = L"menu.html";
-const std::wstring default_view_path = L"text.html";
+const std::wstring default_path = L"index.html";
 const float default_width = GetSystemMetrics( SM_CXSCREEN ) * 0.6f;
 const float default_heigth = GetSystemMetrics( SM_CYSCREEN ) * 0.6f;
-constexpr uint32_t menu_width = 200;
 
 // Ultralight application state.
 //
 using namespace ultralight;
 RefPtr<App> app;
 RefPtr<Window> window;
-RefPtr<Overlay> overlay_menu;
-RefPtr<Overlay> overlay_view;
+RefPtr<Overlay> main_overlay;
+
+
 
 // Current VTIL routine we're inspecting.
 //
@@ -36,16 +35,7 @@ vtil::routine* routine;
 
 // Path to assets and the common event listener.
 //
-const std::wstring assets_path = [ ] ()
-{
-    std::wstring current_directory;
-    current_directory.resize( MAX_PATH );
-    GetCurrentDirectoryW( MAX_PATH, current_directory.data() );
-    current_directory = current_directory.data();
-    for ( wchar_t& c : current_directory )
-        if ( c == '\\' ) c = '/';
-    return L"file:///" + current_directory + L"/assets/";
-}();
+const std::wstring assets_path = L"http://localhost:8080/";
 lambda_event_listener event_listener( assets_path );
 
 // Pops a file dialogue with the given filter.
@@ -79,7 +69,6 @@ std::wstring pop_file_dialogue( const wchar_t* filter )
 //
 bool load_routine( const std::wstring& path )
 {
-
     vtil::basic_block* blk = vtil::basic_block::begin( 0x100 );
     auto [t0, t1] = blk->tmp( 64, 64 );
 
@@ -140,14 +129,8 @@ void export_menu_api( JSObject& vtil_object )
         std::string str( ( std::istreambuf_iterator<char>( ss ) ),
                            std::istreambuf_iterator<char>() );
 
-        // Switch to view context and run the script.
-        //
-        SetJSContext( overlay_view->view()->js_context() );
+        SetJSContext( main_overlay->view()->js_context() );
         JSEval( str.data() );
-
-        // Revert back to menu context and return success.
-        //
-        SetJSContext( overlay_menu->view()->js_context() );
         return true;
     } );
 
@@ -163,7 +146,7 @@ void export_menu_api( JSObject& vtil_object )
 
         // Reload the main view and report success.
         //
-        overlay_view->view()->Reload();
+        main_overlay->view()->Reload();
         return true;
     } );
 
@@ -171,15 +154,14 @@ void export_menu_api( JSObject& vtil_object )
     //
     vtil_object[ "reload" ] = JSCallback( [ ] ( const JSObject& thisObject, const JSArgs& args )
     {
-        overlay_menu->view()->Reload();
-        overlay_view->view()->Reload();
+        main_overlay->view()->Reload();
     } );
 
     // Callback to get and set current main view.
     //
     vtil_object[ "get_view" ] = JSCallbackWithRetval( [ ] ( const JSObject& thisObject, const JSArgs& args )
     {
-        std::wstring path = vtil::js::from_js<std::wstring>( overlay_view->view()->url() );
+        std::wstring path = vtil::js::from_js<std::wstring>( main_overlay->view()->url() );
         if ( path.starts_with( assets_path ) )
             path = path.substr( assets_path.size() );
         return vtil::js::as_js( path );
@@ -187,7 +169,7 @@ void export_menu_api( JSObject& vtil_object )
     vtil_object[ "set_view" ] = JSCallback( [ ] ( const JSObject& thisObject, const JSArgs& args )
     {
         fassert( args.size() >= 1 && args.data()[ 0 ].IsString() );
-        overlay_view->view()->LoadURL( String{ assets_path.data(), assets_path.length() } + args.data()[ 0 ].ToString() );
+        main_overlay->view()->LoadURL( String{ assets_path.data(), assets_path.length() } + args.data()[ 0 ].ToString() );
     } );
 }
 
@@ -238,11 +220,7 @@ int WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
     //
     event_listener.on_resize =  [ ]( uint32_t width, uint32_t height )
     {
-        overlay_menu->MoveTo( 0, 0 );
-        overlay_menu->Resize( menu_width, height );
-
-        overlay_view->MoveTo( menu_width, 0 );
-        overlay_view->Resize( width <= menu_width ? 1 : width - menu_width, height );
+        main_overlay->Resize( width, height );
     };
 
     // Set the listener for URL being changed to export the API.
@@ -253,9 +231,9 @@ int WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
 
         vtil_object[ "file_name" ] = vtil::js::as_js( file_name );
 
-        if ( view == overlay_menu->view().ptr() )
+        if ( view == main_overlay->view().ptr() )
             export_menu_api( vtil_object );
-        else if ( view == overlay_view->view().ptr() )
+        else if ( view == main_overlay->view().ptr() )
             export_view_api( vtil_object );
 
         JSGlobalObject()[ "vtil" ] = JSValue( vtil_object );
@@ -284,24 +262,19 @@ int WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
 
     // Create the panes and resize accordingly.
     //
-    overlay_menu = Overlay::Create( *window.get(), 1, 1, 0, 0 );
-    overlay_view = Overlay::Create( *window.get(), 1, 1, 0, 0 );
+    main_overlay = Overlay::Create( *window.get(), 1, 1, 0, 0 );
     event_listener.OnResize( window->width(), window->height() );
 
     // Set the listeners.
     //
     window->set_listener( &event_listener );
-    overlay_menu->view()->set_load_listener( &event_listener );
-    overlay_menu->view()->set_view_listener( &event_listener );
-    overlay_view->view()->set_load_listener( &event_listener );
-    overlay_view->view()->set_view_listener( &event_listener );
+    main_overlay->view()->set_load_listener( &event_listener );
+    main_overlay->view()->set_view_listener( &event_listener );
 
     // Navigate to the default pages.
     //
-    std::wstring menu_path = assets_path + default_menu_path;
-    std::wstring view_path = assets_path + default_view_path;
-    overlay_menu->view()->LoadURL( String{ menu_path.data(), menu_path.length() } );
-    overlay_view->view()->LoadURL( String{ view_path.data(), view_path.length() } );
+    std::wstring menu_path = assets_path + default_path;
+    main_overlay->view()->LoadURL( String{ menu_path.data(), menu_path.length() } );
 
     // Run the app.
     //
