@@ -113,10 +113,29 @@ bool load_routine( const std::wstring& path )
     return true;
 }
 
-// Exports the menu API.
+// rrts the API.
 //
-void export_menu_api( JSObject& vtil_object )
+void export_api( JSObject& vtil_object )
 {
+    // Export instruction list.
+    //
+    JSObject list_out;
+    for ( auto& instruction : vtil::instruction_list )
+        list_out[ vtil::js::as_js( instruction.name ) ] = vtil::js::as_js( &instruction );
+    vtil_object[ "ins" ] = JSValue( list_out );
+
+    // Export all blocks.
+    //
+    JSObject block_map;
+    for ( auto& pair : routine->explored_blocks )
+        block_map[ vtil::js::as_js( pair.first ) ] = vtil::js::as_js( pair.second );
+    vtil_object[ "blocks" ] = JSValue( block_map );
+
+    // Export entry point and file name.
+    //
+    vtil_object[ "entry_point" ] = vtil::js::as_js( routine->entry_point->entry_vip );
+    vtil_object[ "file_name" ] = vtil::js::as_js( file_name );
+    
     // Callback to execute a script in the main view.
     //
     vtil_object[ "run" ] = JSCallbackWithRetval( [ ] ( const JSObject& thisObject, const JSArgs& args ) -> JSValue
@@ -149,51 +168,6 @@ void export_menu_api( JSObject& vtil_object )
         main_overlay->view()->Reload();
         return true;
     } );
-
-    // Callback to reload all windows.
-    //
-    vtil_object[ "reload" ] = JSCallback( [ ] ( const JSObject& thisObject, const JSArgs& args )
-    {
-        main_overlay->view()->Reload();
-    } );
-
-    // Callback to get and set current main view.
-    //
-    vtil_object[ "get_view" ] = JSCallbackWithRetval( [ ] ( const JSObject& thisObject, const JSArgs& args )
-    {
-        std::wstring path = vtil::js::from_js<std::wstring>( main_overlay->view()->url() );
-        if ( path.starts_with( assets_path ) )
-            path = path.substr( assets_path.size() );
-        return vtil::js::as_js( path );
-    } );
-    vtil_object[ "set_view" ] = JSCallback( [ ] ( const JSObject& thisObject, const JSArgs& args )
-    {
-        fassert( args.size() >= 1 && args.data()[ 0 ].IsString() );
-        main_overlay->view()->LoadURL( String{ assets_path.data(), assets_path.length() } + args.data()[ 0 ].ToString() );
-    } );
-}
-
-// Exports the view API.
-//
-void export_view_api( JSObject& vtil_object )
-{
-    // Export instruction list.
-    //
-    JSObject list_out;
-    for ( auto& instruction : vtil::instruction_list )
-        list_out[ vtil::js::as_js( instruction.name ) ] = vtil::js::as_js( &instruction );
-    vtil_object[ "ins" ] = JSValue( list_out );
-
-    // Export all blocks.
-    //
-    JSObject block_map;
-    for ( auto& pair : routine->explored_blocks )
-        block_map[ vtil::js::as_js( pair.first ) ] = vtil::js::as_js( pair.second );
-    vtil_object[ "blocks" ] = JSValue( block_map );
-
-    // Export entry point.
-    //
-    vtil_object[ "entry_point" ] = vtil::js::as_js( routine->entry_point->entry_vip );
 }
 
 // Entry point of the application.
@@ -228,14 +202,7 @@ int WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
     event_listener.on_change_url = [ ] ( View* view, auto& )
     {
         JSObject vtil_object = {};
-
-        vtil_object[ "file_name" ] = vtil::js::as_js( file_name );
-
-        if ( view == main_overlay->view().ptr() )
-            export_menu_api( vtil_object );
-        else if ( view == main_overlay->view().ptr() )
-            export_view_api( vtil_object );
-
+        export_api( vtil_object );
         JSGlobalObject()[ "vtil" ] = JSValue( vtil_object );
     };
 
