@@ -21,5 +21,6 @@ Capstone/
 build/
 Ultralight/
 build-vtil-core/
+.vscode/
 
 *.dll
