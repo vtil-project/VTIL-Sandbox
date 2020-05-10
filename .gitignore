@@ -20,5 +20,6 @@ Keystone/
 Capstone/
 build/
 Ultralight/
+build-vtil-core/
 
 *.dll
