@@ -1,32 +1,31 @@
 <template>
-  <div id="app">
-    <div id="nav">
-      <router-link to="/">Home</router-link> |
-      <router-link to="/about">About</router-link>
-    </div>
-    <router-view/>
-  </div>
+<div id="main">
+    <main-toolbar />
+    <splittable-pane id="main-pane"/>
+</div>
 </template>
+<script>
+import MainToobar from './components/MainToolbar'
+import SplittablePane from './components/SplittablePane'
 
+export default {
+    components: {
+        "main-toolbar": MainToobar,
+        SplittablePane
+    }
+}
+
+</script>
 <style>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
+body {
+    margin: 0;
+    font-family: -apple-system, 'Segoe UI', Ubuntu, Arial, sans-serif;
 }
-
-#nav {
-  padding: 30px;
+#main {
+    height: 100%
 }
-
-#nav a {
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-#nav a.router-link-exact-active {
-  color: #42b983;
+#main-pane {
+    position: absolute;
+    top: 37px;
 }
 </style>
