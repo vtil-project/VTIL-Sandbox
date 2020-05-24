@@ -34,7 +34,7 @@ namespace vtil::js
 		output[ "memory_write" ] = desc->memory_write;
 		output[ "access_size_index" ] = desc->access_size_index;
 		output[ "memory_operand_index" ] = desc->memory_operand_index;
-		output[ "access_types" ] = as_js_array( desc->operand_types );
+		output[ "operand_types" ] = as_js_array( desc->operand_types );
 		output[ "branch_operands_rip" ] = as_js_array( desc->branch_operands_rip );
 		output[ "branch_operands_vip" ] = as_js_array( desc->branch_operands_vip );
 		return JSValue( std::move( output ) );
