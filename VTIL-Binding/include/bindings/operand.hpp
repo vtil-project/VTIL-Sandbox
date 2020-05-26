@@ -23,8 +23,11 @@ namespace vtil::js
 			output[ "is_local" ] = reg.is_local();
 			output[ "is_flags" ] = reg.is_flags();
 			output[ "is_stack_pointer" ] = reg.is_stack_pointer();
+			output[ "is_image_base" ] = reg.is_image_base();
 			output[ "is_volatile" ] = reg.is_volatile();
 			output[ "is_read_only" ] = reg.is_read_only();
+			output[ "is_undefined" ] = reg.is_undefined();
+			output[ "is_internal" ] = reg.is_internal();
 		}
 		else
 		{
@@ -48,8 +51,11 @@ namespace vtil::js
 			if ( bool( value[ "is_local" ] ) ) flags |= register_local;
 			if ( bool( value[ "is_flags" ] ) ) flags |= register_flags;
 			if ( bool( value[ "is_stack_pointer" ] ) ) flags |= register_stack_pointer;
+			if ( bool( value[ "is_image_base" ] ) ) flags |= register_image_base ;
 			if ( bool( value[ "is_volatile" ] ) ) flags |= register_volatile;
 			if ( bool( value[ "is_read_only" ] ) ) flags |= register_readonly;
+			if ( bool( value[ "is_undefined " ] ) ) flags |= register_undefined;
+			if ( bool( value[ "is_internal " ] ) ) flags |= register_internal;
 			return register_desc{ flags, from_js<size_t>( value[ "local_id" ] ), bit_count, bit_offset };
 		}
 		else if( type_name == L"imm" )
