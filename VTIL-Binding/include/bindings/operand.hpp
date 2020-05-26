@@ -19,15 +19,18 @@ namespace vtil::js
 		{
 			auto& reg = value.reg();
 			output[ "local_id" ] = as_js( reg.local_id );
-			output[ "is_physical" ] = reg.is_physical();
-			output[ "is_local" ] = reg.is_local();
-			output[ "is_flags" ] = reg.is_flags();
-			output[ "is_stack_pointer" ] = reg.is_stack_pointer();
-			output[ "is_image_base" ] = reg.is_image_base();
-			output[ "is_volatile" ] = reg.is_volatile();
-			output[ "is_read_only" ] = reg.is_read_only();
-			output[ "is_undefined" ] = reg.is_undefined();
-			output[ "is_internal" ] = reg.is_internal();
+			output[ "is_flags" ]= reg.is_flags();
+			output[ "is_undefined" ]= reg.is_undefined();
+			output[ "is_local" ]= reg.is_local();
+			output[ "is_global" ]= reg.is_global();
+			output[ "is_virtual" ]= reg.is_virtual();
+			output[ "is_physical" ]= reg.is_physical();
+			output[ "is_volatile" ]= reg.is_volatile();
+			output[ "is_read_only" ]= reg.is_read_only();
+			output[ "is_stack_pointer" ]= reg.is_stack_pointer();
+			output[ "is_image_base" ]= reg.is_image_base();
+			output[ "is_special" ]= reg.is_special();
+			output[ "is_internal" ]= reg.is_internal();
 		}
 		else
 		{
@@ -47,15 +50,19 @@ namespace vtil::js
 		if ( type_name == L"reg" )
 		{
 			uint8_t flags = 0;
-			if ( bool( value[ "is_physical" ] ) ) flags |= register_physical;
-			if ( bool( value[ "is_local" ] ) ) flags |= register_local;
 			if ( bool( value[ "is_flags" ] ) ) flags |= register_flags;
-			if ( bool( value[ "is_stack_pointer" ] ) ) flags |= register_stack_pointer;
-			if ( bool( value[ "is_image_base" ] ) ) flags |= register_image_base ;
+			if ( bool( value[ "is_undefined" ] ) ) flags |= register_undefined;
+			if ( bool( value[ "is_local" ] ) ) flags |= register_local;
+			if ( bool( value[ "is_global" ] ) ) flags |= ~register_local;
+			if ( bool( value[ "is_virtual" ] ) ) flags |= ~register_physical;
+			if ( bool( value[ "is_physical" ] ) ) flags |= register_physical;
 			if ( bool( value[ "is_volatile" ] ) ) flags |= register_volatile;
 			if ( bool( value[ "is_read_only" ] ) ) flags |= register_readonly;
-			if ( bool( value[ "is_undefined " ] ) ) flags |= register_undefined;
-			if ( bool( value[ "is_internal " ] ) ) flags |= register_internal;
+			if ( bool( value[ "is_stack_pointer" ] ) ) flags |= register_stack_pointer;
+			if ( bool( value[ "is_image_base" ] ) ) flags |= register_image_base;
+			if ( bool( value[ "is_special" ] ) ) flags |= register_special;
+			if ( bool( value[ "is_internal" ] ) ) flags |= register_internal;
+
 			return register_desc{ flags, from_js<size_t>( value[ "local_id" ] ), bit_count, bit_offset };
 		}
 		else if( type_name == L"imm" )
