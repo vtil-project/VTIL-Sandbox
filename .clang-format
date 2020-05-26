@@ -30,5 +30,4 @@ AllowShortLambdasOnASingleLine: 'All'
 AllowShortIfStatementsOnASingleLine: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 AllowAllConstructorInitializersOnNextLine: true
-AlignConsecutiveAssignments: true
 ...
