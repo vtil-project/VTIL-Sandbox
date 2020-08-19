@@ -52,6 +52,7 @@ void lambda_event_listener::OnAddConsoleMessage( View* caller, MessageSource sou
 		SetConsoleTitleA( "VTIL Sandbox" );
 		freopen_s( &tmp, "CONOUT$", "w", stdout );
 		freopen_s( &tmp, "CONOUT$", "w", stderr );
+		console_init = true;
 	}
 
 	// Shorten the source name where possible.
