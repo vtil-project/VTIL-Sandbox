@@ -4,6 +4,7 @@
             Upload VTIL
             <input type="file" accept=".vtil" @change="onFileChanged" />
         </label>
+        <button class="ghost-btn" @click="$emit('download-file')">Download VTIL</button>
         <button class="ghost-btn" @click="$emit('refresh')">Refresh</button>
         <button class="ghost-btn" @click="$emit('toggle-theme')">{{ darkMode ? 'Light' : 'Dark' }}</button>
         <span class="status" :class="{ok: backendReady, err: !backendReady}">

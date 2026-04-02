@@ -5,9 +5,15 @@
         :backend-ready="backendReady"
         :dark-mode="darkMode"
         @upload-file="handleUpload"
+        @download-file="downloadCurrentRoutine"
         @refresh="refreshRoutine"
         @toggle-theme="toggleTheme" />
-    <splittable-pane id="main-pane" :routine="routine" />
+    <splittable-pane
+        id="main-pane"
+        :routine="routine"
+        :editor-schema="editorSchema"
+        @edit-immediate="handleEditImmediate"
+        @edit-instruction="handleEditInstruction" />
 </div>
 </template>
 <script>
@@ -29,6 +35,11 @@ export default {
                 cfg_edges: [],
                 last_error: ''
             },
+            editorSchema: {
+                mnemonics: [],
+                registers: [],
+                instructions: []
+            },
             pollTimer: null
         }
     },
@@ -37,6 +48,15 @@ export default {
         SplittablePane
     },
     methods: {
+        buildApiUrl(path, query = {}) {
+            const url = new URL(`${API_BASE}${path}`)
+            Object.keys(query).forEach((key) => {
+                if (query[key] !== undefined && query[key] !== null) {
+                    url.searchParams.set(key, String(query[key]))
+                }
+            })
+            return url.toString()
+        },
         normalizeRoutine(payload) {
             const blocks = (payload.blocks || []).slice().sort((a, b) => {
                 const aa = a.address || ''
@@ -74,6 +94,23 @@ export default {
                 this.backendReady = false
             }
         },
+        async refreshEditorSchema() {
+            await this.checkHealth()
+            if (!this.backendReady) return
+
+            try {
+                const response = await fetch(this.buildApiUrl('/api/schema'))
+                if (!response.ok) return
+                const payload = await response.json()
+                this.editorSchema = {
+                    mnemonics: payload.mnemonics || [],
+                    registers: payload.registers || [],
+                    instructions: payload.instructions || []
+                }
+            } catch {
+                this.backendReady = false
+            }
+        },
         async handleUpload(file) {
             if (!file) return
 
@@ -97,6 +134,106 @@ export default {
                 window.alert(text || 'Upload failed.')
             }
             await this.refreshRoutine()
+            await this.refreshEditorSchema()
+        },
+        async handleEditImmediate(payload) {
+            if (!payload) return
+
+            await this.checkHealth()
+            if (!this.backendReady) {
+                window.alert('Backend is not reachable on http://127.0.0.1:8090')
+                return
+            }
+
+            const endpoint = this.buildApiUrl('/api/edit/immediate', {
+                block: payload.block,
+                instruction: payload.instruction,
+                operand: payload.operand,
+                value: payload.value
+            })
+
+            try {
+                const response = await fetch(endpoint, { method: 'POST' })
+                if (!response.ok) {
+                    const text = await response.text()
+                    window.alert(text || 'Immediate edit failed.')
+                }
+            } catch {
+                this.backendReady = false
+                window.alert('Immediate edit failed.')
+            }
+
+            await this.refreshRoutine()
+            await this.refreshEditorSchema()
+        },
+        async handleEditInstruction(payload) {
+            if (!payload || !payload.text) return
+
+            await this.checkHealth()
+            if (!this.backendReady) {
+                window.alert('Backend is not reachable on http://127.0.0.1:8090')
+                return
+            }
+
+            const endpoint = this.buildApiUrl('/api/edit/instruction', {
+                block: payload.block,
+                instruction: payload.instruction
+            })
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain; charset=utf-8'
+                    },
+                    body: payload.text
+                })
+
+                if (!response.ok) {
+                    const text = await response.text()
+                    window.alert(text || 'Instruction edit failed.')
+                }
+            } catch {
+                this.backendReady = false
+                window.alert('Instruction edit failed.')
+            }
+
+            await this.refreshRoutine()
+            await this.refreshEditorSchema()
+        },
+        async downloadCurrentRoutine() {
+            await this.checkHealth()
+            if (!this.backendReady) {
+                window.alert('Backend is not reachable on http://127.0.0.1:8090')
+                return
+            }
+
+            try {
+                const response = await fetch(this.buildApiUrl('/api/download'))
+                if (!response.ok) {
+                    const text = await response.text()
+                    window.alert(text || 'Download failed.')
+                    return
+                }
+
+                const blob = await response.blob()
+                const objectUrl = URL.createObjectURL(blob)
+                const disposition = response.headers.get('Content-Disposition') || ''
+                const match = disposition.match(/filename="?([^";]+)"?/i)
+                const fallback = this.routine.file_name || 'edited.vtil'
+                const filename = (match && match[1]) ? match[1] : fallback
+
+                const anchor = document.createElement('a')
+                anchor.href = objectUrl
+                anchor.download = filename
+                document.body.appendChild(anchor)
+                anchor.click()
+                anchor.remove()
+                URL.revokeObjectURL(objectUrl)
+            } catch {
+                this.backendReady = false
+                window.alert('Download failed.')
+            }
         },
         toggleTheme() {
             this.darkMode = !this.darkMode
@@ -104,6 +241,7 @@ export default {
     },
     mounted() {
         this.refreshRoutine()
+        this.refreshEditorSchema()
         this.pollTimer = setInterval(() => {
             this.refreshRoutine()
         }, 1200)

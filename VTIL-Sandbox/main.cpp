@@ -6,16 +6,19 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include "json.hpp"
 #include <vtil/io>
 #include <vtil/vtil>
 
@@ -25,6 +28,8 @@ std::wstring file_name;
 std::unique_ptr<vtil::routine> routine;
 std::wstring last_error;
 std::mutex state_mutex;
+
+using json = nlohmann::json;
 
 std::once_flag console_init_once;
 std::atomic<int> active_clients{ 0 };
@@ -156,51 +161,11 @@ std::wstring utf8_to_wide( const std::string& text )
 	return output;
 }
 
-std::string json_escape( const std::string& input )
-{
-	std::ostringstream out;
-	for ( char c : input )
-	{
-		switch ( c )
-		{
-			case '"':
-				out << "\\\"";
-				break;
-			case '\\':
-				out << "\\\\";
-				break;
-			case '\b':
-				out << "\\b";
-				break;
-			case '\f':
-				out << "\\f";
-				break;
-			case '\n':
-				out << "\\n";
-				break;
-			case '\r':
-				out << "\\r";
-				break;
-			case '\t':
-				out << "\\t";
-				break;
-			default:
-				if ( static_cast<unsigned char>( c ) < 0x20 )
-				{
-					out << "\\u" << std::uppercase << std::hex << std::setw( 4 ) << std::setfill( '0' ) << static_cast<unsigned int>( static_cast<unsigned char>( c ) )
-						<< std::nouppercase << std::dec << std::setfill( ' ' );
-				}
-				else
-					out << c;
-				break;
-		}
-	}
-	return out.str();
-}
+json make_json_ok() { return json{ { "ok", true } }; }
 
-std::string make_json_ok() { return "{\"ok\":true}"; }
+json make_json_error( const std::string& msg ) { return json{ { "ok", false }, { "error", msg } }; }
 
-std::string make_json_error( const std::string& msg ) { return "{\"ok\":false,\"error\":\"" + json_escape( msg ) + "\"}"; }
+json make_json_message( const std::string& msg ) { return json{ { "ok", true }, { "message", msg } }; }
 
 std::string hex_u64( uint64_t value )
 {
@@ -213,6 +178,25 @@ std::string to_upper_ascii( std::string s )
 {
 	std::transform( s.begin(), s.end(), s.begin(), []( unsigned char c ) { return static_cast<char>( std::toupper( c ) ); } );
 	return s;
+}
+
+std::string to_lower_ascii( std::string s )
+{
+	std::transform( s.begin(), s.end(), s.begin(), []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+	return s;
+}
+
+std::string trim_ascii( const std::string& input )
+{
+	size_t start = 0;
+	while ( start < input.size() && std::isspace( static_cast<unsigned char>( input[ start ] ) ) )
+		++start;
+
+	size_t end = input.size();
+	while ( end > start && std::isspace( static_cast<unsigned char>( input[ end - 1 ] ) ) )
+		--end;
+
+	return input.substr( start, end - start );
 }
 
 std::string operand_type_to_string( vtil::operand_type type )
@@ -234,76 +218,104 @@ std::string operand_type_to_string( vtil::operand_type type )
 	}
 }
 
-void append_instruction_desc_json( std::ostringstream& out, const vtil::instruction_desc* desc )
+json make_instruction_desc_json( const vtil::instruction_desc* desc )
 {
 	if ( !desc )
-	{
-		out << "null";
-		return;
-	}
+		return nullptr;
 
-	out << "{";
-	out << "\"name\":\"" << json_escape( desc->name ) << "\",";
-	out << "\"is_volatile\":" << ( desc->is_volatile ? "true" : "false" ) << ",";
-	out << "\"memory_write\":" << ( desc->memory_write ? "true" : "false" ) << ",";
-	out << "\"access_size_index\":" << desc->vaccess_size_index << ",";
-	out << "\"memory_operand_index\":" << desc->memory_operand_index << ",";
-
-	out << "\"operand_types\":[";
-	for ( size_t i = 0; i < desc->operand_types.size(); ++i )
-	{
-		if ( i ) out << ",";
-		out << "\"" << operand_type_to_string( desc->operand_types[ i ] ) << "\"";
-	}
-	out << "],";
-
-	out << "\"branch_operands_rip\":[";
-	for ( size_t i = 0; i < desc->branch_operands_rip.size(); ++i )
-	{
-		if ( i ) out << ",";
-		out << desc->branch_operands_rip[ i ];
-	}
-	out << "],";
-
-	out << "\"branch_operands_vip\":[";
-	for ( size_t i = 0; i < desc->branch_operands_vip.size(); ++i )
-	{
-		if ( i ) out << ",";
-		out << desc->branch_operands_vip[ i ];
-	}
-	out << "]";
-	out << "}";
+	json out;
+	out[ "name" ] = desc->name;
+	out[ "is_volatile" ] = desc->is_volatile;
+	out[ "memory_write" ] = desc->memory_write;
+	out[ "access_size_index" ] = desc->vaccess_size_index;
+	out[ "memory_operand_index" ] = desc->memory_operand_index;
+	out[ "operand_types" ] = json::array();
+	for ( auto type : desc->operand_types )
+		out[ "operand_types" ].push_back( operand_type_to_string( type ) );
+	out[ "branch_operands_rip" ] = desc->branch_operands_rip;
+	out[ "branch_operands_vip" ] = desc->branch_operands_vip;
+	return out;
 }
 
-void append_operand_json( std::ostringstream& out, const vtil::operand& op, vtil::operand_type access_type )
+std::string format_display_instruction( const vtil::instruction& insn );
+
+json make_operand_json( const vtil::operand& op, vtil::operand_type access_type )
 {
-	out << "{";
-	out << "\"type\":\"" << operand_type_to_string( access_type ) << "\",";
-	out << "\"text\":\"" << json_escape( op.to_string() ) << "\",";
-	out << "\"bit_count\":" << op.bit_count() << ",";
-	out << "\"kind\":\"" << ( op.is_register() ? "register" : "immediate" ) << "\"";
+	json out;
+	out[ "type" ] = operand_type_to_string( access_type );
+	out[ "text" ] = op.to_string();
+	out[ "bit_count" ] = op.bit_count();
+	out[ "kind" ] = op.is_register() ? "register" : "immediate";
 
 	if ( op.is_register() )
 	{
 		auto reg = op.reg();
-		out << ",\"register\":{";
-		out << "\"name\":\"" << json_escape( reg.to_string() ) << "\",";
-		out << "\"combined_id\":" << reg.combined_id << ",";
-		out << "\"bit_offset\":" << reg.bit_offset << ",";
-		out << "\"bit_count\":" << reg.bit_count;
-		out << "}";
+		out[ "register" ] = {
+			{ "name", reg.to_string() },
+			{ "combined_id", reg.combined_id },
+			{ "bit_offset", reg.bit_offset },
+			{ "bit_count", reg.bit_count }
+		};
 	}
 	else
 	{
 		auto imm = op.imm();
-		out << ",\"immediate\":{";
-		out << "\"u64\":" << static_cast<unsigned long long>( imm.uval ) << ",";
-		out << "\"i64\":" << static_cast<long long>( imm.ival ) << ",";
-		out << "\"bit_count\":" << imm.bit_count;
-		out << "}";
+		out[ "immediate" ] = {
+			{ "u64", static_cast<unsigned long long>( imm.uval ) },
+			{ "i64", static_cast<long long>( imm.ival ) },
+			{ "bit_count", imm.bit_count }
+		};
 	}
 
-	out << "}";
+	return out;
+}
+
+json make_instruction_json( const vtil::instruction& insn, size_t index )
+{
+	json instruction;
+	instruction[ "index" ] = index;
+	instruction[ "vip" ] = hex_u64( insn.vip );
+	instruction[ "mnemonic" ] = insn.base ? insn.base->name : "";
+	instruction[ "text" ] = insn.to_string();
+	instruction[ "display_mnemonic" ] = to_upper_ascii( insn.base ? insn.base->name : "" );
+	instruction[ "display_text" ] = format_display_instruction( insn );
+	instruction[ "desc" ] = make_instruction_desc_json( insn.base );
+	instruction[ "operand_count" ] = insn.operands.size();
+	instruction[ "display_operands" ] = json::array();
+	for ( const auto& operand : insn.operands )
+		instruction[ "display_operands" ].push_back( operand.to_string() );
+	instruction[ "operands" ] = json::array();
+	for ( size_t op_i = 0; op_i < insn.operands.size(); ++op_i )
+	{
+		vtil::operand_type access_type = vtil::operand_type::invalid;
+		if ( insn.base && op_i < insn.base->operand_types.size() )
+			access_type = insn.base->operand_types[ op_i ];
+		instruction[ "operands" ].push_back( make_operand_json( insn.operands[ op_i ], access_type ) );
+	}
+	instruction[ "is_branching" ] = insn.base && insn.base->is_branching();
+	instruction[ "is_volatile" ] = insn.is_volatile();
+	instruction[ "sp_offset" ] = insn.sp_offset;
+	instruction[ "sp_index" ] = insn.sp_index;
+	return instruction;
+}
+
+json make_block_json( vtil::vip_t vip, const vtil::basic_block& blk )
+{
+	json block;
+	block[ "address" ] = hex_u64( vip );
+	block[ "instruction_count" ] = blk.size();
+	block[ "predecessors" ] = json::array();
+	for ( auto* prev_blk : blk.prev )
+		block[ "predecessors" ].push_back( hex_u64( prev_blk->entry_vip ) );
+	block[ "successors" ] = json::array();
+	for ( auto* next_blk : blk.next )
+		block[ "successors" ].push_back( hex_u64( next_blk->entry_vip ) );
+	block[ "instructions" ] = json::array();
+
+	size_t index = 0;
+	for ( auto it = blk.begin(); it != blk.end(); ++it, ++index )
+		block[ "instructions" ].push_back( make_instruction_json( *it, index ) );
+	return block;
 }
 
 std::string format_display_instruction( const vtil::instruction& insn )
@@ -388,128 +400,124 @@ bool load_routine_from_bytes( const std::vector<uint8_t>& bytes, const std::wstr
 	}
 }
 
-std::string make_state_json()
+json make_state_json()
 {
 	std::lock_guard<std::mutex> guard( state_mutex );
 
+	json out;
+	out[ "ok" ] = static_cast<bool>( routine );
+	out[ "file_name" ] = wide_to_utf8( file_name );
+	out[ "last_error" ] = wide_to_utf8( last_error );
+	out[ "entry_point" ] = routine && routine->entry_point ? json( hex_u64( routine->entry_point->entry_vip ) ) : nullptr;
+	out[ "blocks" ] = json::array();
+	out[ "cfg_edges" ] = json::array();
+
+	if ( routine )
+	{
+		for ( const auto& [ vip, blk ] : routine->explored_blocks )
+		{
+			if ( !blk ) continue;
+
+			out[ "blocks" ].push_back( make_block_json( vip, *blk ) );
+			for ( auto* next_blk : blk->next )
+				out[ "cfg_edges" ].push_back( json{ { "from", hex_u64( vip ) }, { "to", hex_u64( next_blk->entry_vip ) } } );
+		}
+	}
+
+	return out;
+}
+
+std::string make_operand_example_token( vtil::operand_type type, size_t index )
+{
+	const size_t n = index + 1;
+	switch ( type )
+	{
+		case vtil::operand_type::read_imm:
+			return n == 1 ? "0x10:64" : ( "0x" + std::to_string( n * 16 ) + ":64" );
+		case vtil::operand_type::read_reg:
+			return n == 1 ? "vr0" : ( "vr" + std::to_string( n - 1 ) );
+		case vtil::operand_type::write:
+		case vtil::operand_type::readwrite:
+			return n == 1 ? "vr0" : ( "vr" + std::to_string( n - 1 ) );
+		case vtil::operand_type::read_any:
+			return n == 1 ? "vr0" : "0x20:64";
+		default:
+			return "?";
+	}
+}
+
+std::string make_instruction_example_line( const vtil::instruction_desc* desc )
+{
+	if ( !desc )
+		return "";
+
 	std::ostringstream out;
-	out << "{";
-	out << "\"ok\":" << ( routine ? "true" : "false" ) << ",";
-	out << "\"file_name\":\"" << json_escape( wide_to_utf8( file_name ) ) << "\",";
-	out << "\"last_error\":\"" << json_escape( wide_to_utf8( last_error ) ) << "\",";
-
-	if ( routine && routine->entry_point )
-		out << "\"entry_point\":\"" << hex_u64( routine->entry_point->entry_vip ) << "\",";
-	else
-		out << "\"entry_point\":null,";
-
-	out << "\"blocks\":[";
-	bool first_block = true;
-	if ( routine )
+	out << desc->name;
+	if ( !desc->operand_types.empty() )
 	{
-		for ( const auto& [ vip, blk ] : routine->explored_blocks )
+		out << " ";
+		for ( size_t i = 0; i < desc->operand_types.size(); ++i )
 		{
-			if ( !first_block )
-				out << ",";
-			first_block = false;
-
-			out << "{";
-			out << "\"address\":\"" << hex_u64( vip ) << "\",";
-			out << "\"instruction_count\":" << blk->size() << ",";
-
-			out << "\"predecessors\":[";
-			bool first_prev = true;
-			for ( auto* prev_blk : blk->prev )
-			{
-				if ( !first_prev )
-					out << ",";
-				first_prev = false;
-				out << "\"" << hex_u64( prev_blk->entry_vip ) << "\"";
-			}
-			out << "],";
-
-			out << "\"successors\":[";
-			bool first_next = true;
-			for ( auto* next_blk : blk->next )
-			{
-				if ( !first_next )
-					out << ",";
-				first_next = false;
-				out << "\"" << hex_u64( next_blk->entry_vip ) << "\"";
-			}
-			out << "],";
-
-			out << "\"instructions\":[";
-			bool first_insn = true;
-			size_t index = 0;
-			for ( auto it = blk->begin(); it != blk->end(); ++it, ++index )
-			{
-				const auto& insn = *it;
-				if ( !first_insn )
-					out << ",";
-				first_insn = false;
-
-				out << "{";
-				out << "\"index\":" << index << ",";
-				out << "\"vip\":\"" << hex_u64( insn.vip ) << "\",";
-				out << "\"mnemonic\":\"" << json_escape( insn.base ? insn.base->name : "" ) << "\",";
-				out << "\"text\":\"" << json_escape( insn.to_string() ) << "\",";
-				out << "\"display_mnemonic\":\"" << json_escape( to_upper_ascii( insn.base ? insn.base->name : "" ) ) << "\",";
-				out << "\"display_text\":\"" << json_escape( format_display_instruction( insn ) ) << "\",";
-				out << "\"desc\":";
-				append_instruction_desc_json( out, insn.base );
-				out << ",";
-				out << "\"operand_count\":" << insn.operands.size() << ",";
-				out << "\"display_operands\":[";
-				for ( size_t op_i = 0; op_i < insn.operands.size(); ++op_i )
-				{
-					if ( op_i )
-						out << ",";
-					out << "\"" << json_escape( insn.operands[ op_i ].to_string() ) << "\"";
-				}
-				out << "],";
-
-				out << "\"operands\":[";
-				for ( size_t op_i = 0; op_i < insn.operands.size(); ++op_i )
-				{
-					if ( op_i ) out << ",";
-					vtil::operand_type access_type = vtil::operand_type::invalid;
-					if ( insn.base && op_i < insn.base->operand_types.size() )
-						access_type = insn.base->operand_types[ op_i ];
-					append_operand_json( out, insn.operands[ op_i ], access_type );
-				}
-				out << "],";
-
-				out << "\"is_branching\":" << ( insn.base && insn.base->is_branching() ? "true" : "false" ) << ",";
-				out << "\"is_volatile\":" << ( insn.is_volatile() ? "true" : "false" ) << ",";
-				out << "\"sp_offset\":" << insn.sp_offset << ",";
-				out << "\"sp_index\":" << insn.sp_index;
-				out << "}";
-			}
-			out << "]";
-			out << "}";
+			if ( i ) out << ", ";
+			out << make_operand_example_token( desc->operand_types[ i ], i );
 		}
 	}
-	out << "],";
-
-	out << "\"cfg_edges\":[";
-	bool first_edge = true;
-	if ( routine )
-	{
-		for ( const auto& [ vip, blk ] : routine->explored_blocks )
-		{
-			for ( auto* next_blk : blk->next )
-			{
-				if ( !first_edge )
-					out << ",";
-				first_edge = false;
-				out << "{\"from\":\"" << hex_u64( vip ) << "\",\"to\":\"" << hex_u64( next_blk->entry_vip ) << "\"}";
-			}
-		}
-	}
-	out << "]";
-	out << "}";
 	return out.str();
+}
+
+json make_editor_schema_json()
+{
+	std::lock_guard<std::mutex> guard( state_mutex );
+
+	std::set<std::string> registers;
+	std::set<std::string> seen_mnemonics;
+	std::vector<json> instruction_items;
+	if ( routine )
+	{
+		for ( const auto& [ vip, blk ] : routine->explored_blocks )
+		{
+			if ( !blk ) continue;
+			for ( const auto& insn : *blk )
+			{
+				for ( const auto& op : insn.operands )
+				{
+					if ( op.is_register() )
+						registers.insert( op.reg().to_string() );
+				}
+
+				if ( insn.base )
+				{
+					const std::string mnemonic = insn.base->name;
+					if ( seen_mnemonics.insert( mnemonic ).second )
+					{
+						json item = make_instruction_desc_json( insn.base );
+						item[ "example_line" ] = make_instruction_example_line( insn.base );
+						instruction_items.push_back( std::move( item ) );
+					}
+				}
+			}
+		}
+	}
+
+	std::sort( instruction_items.begin(), instruction_items.end(), []( const json& a, const json& b ) {
+		return a.value( "name", std::string{} ) < b.value( "name", std::string{} );
+	} );
+
+	json out;
+	out[ "ok" ] = true;
+	out[ "mnemonics" ] = json::array();
+	for ( const auto& item : instruction_items )
+		out[ "mnemonics" ].push_back( item.value( "name", std::string{} ) );
+
+	out[ "registers" ] = json::array();
+	for ( const auto& reg_name : registers )
+		out[ "registers" ].push_back( reg_name );
+
+	out[ "instructions" ] = json::array();
+	for ( auto& item : instruction_items )
+		out[ "instructions" ].push_back( std::move( item ) );
+
+	return out;
 }
 
 std::string url_decode( const std::string& in )
@@ -536,6 +544,594 @@ std::string url_decode( const std::string& in )
 		}
 	}
 	return out;
+}
+
+std::unordered_map<std::string, std::string> parse_query_pairs( const std::string& query )
+{
+	std::unordered_map<std::string, std::string> pairs;
+	if ( query.empty() )
+		return pairs;
+
+	size_t start = 0;
+	while ( start < query.size() )
+	{
+		size_t amp = query.find( '&', start );
+		const size_t end = amp == std::string::npos ? query.size() : amp;
+		const std::string item = query.substr( start, end - start );
+		const size_t eq = item.find( '=' );
+		if ( eq != std::string::npos )
+			pairs[ url_decode( item.substr( 0, eq ) ) ] = url_decode( item.substr( eq + 1 ) );
+		else
+			pairs[ url_decode( item ) ] = "";
+
+		if ( amp == std::string::npos )
+			break;
+		start = amp + 1;
+	}
+	return pairs;
+}
+
+bool parse_index( const std::unordered_map<std::string, std::string>& params, const char* key, size_t& out_value, std::string& error )
+{
+	auto it = params.find( key );
+	if ( it == params.end() || it->second.empty() )
+	{
+		error = std::string( "missing query parameter: " ) + key;
+		return false;
+	}
+
+	try
+	{
+		const unsigned long long parsed = std::stoull( it->second, nullptr, 10 );
+		if ( parsed > static_cast<unsigned long long>( std::numeric_limits<size_t>::max() ) )
+		{
+			error = std::string( "index out of range: " ) + key;
+			return false;
+		}
+		out_value = static_cast<size_t>( parsed );
+		return true;
+	}
+	catch ( ... )
+	{
+		error = std::string( "invalid numeric query parameter: " ) + key;
+		return false;
+	}
+}
+
+bool parse_vip( const std::unordered_map<std::string, std::string>& params, const char* key, vtil::vip_t& out_value, std::string& error )
+{
+	auto it = params.find( key );
+	if ( it == params.end() || it->second.empty() )
+	{
+		error = std::string( "missing query parameter: " ) + key;
+		return false;
+	}
+
+	try
+	{
+		const std::string& text = it->second;
+		const int base = ( text.size() > 2 && text[ 0 ] == '0' && ( text[ 1 ] == 'x' || text[ 1 ] == 'X' ) ) ? 16 : 10;
+		const unsigned long long parsed = std::stoull( text, nullptr, base );
+		out_value = static_cast<vtil::vip_t>( parsed );
+		return true;
+	}
+	catch ( ... )
+	{
+		error = std::string( "invalid VIP query parameter: " ) + key;
+		return false;
+	}
+}
+
+bool parse_immediate_value( const std::string& text, bool& is_negative, uint64_t& unsigned_value, int64_t& signed_value )
+{
+	if ( text.empty() )
+		return false;
+
+	try
+	{
+		if ( text[ 0 ] == '-' )
+		{
+			signed_value = std::stoll( text, nullptr, 0 );
+			is_negative = true;
+			unsigned_value = static_cast<uint64_t>( signed_value );
+			return true;
+		}
+
+		unsigned_value = std::stoull( text, nullptr, 0 );
+		signed_value = static_cast<int64_t>( unsigned_value );
+		is_negative = false;
+		return true;
+	}
+	catch ( ... )
+	{
+		return false;
+	}
+}
+
+bool validate_current_routine_roundtrip()
+{
+	if ( !routine )
+		return false;
+
+	std::stringstream buffer( std::ios::in | std::ios::out | std::ios::binary );
+	vtil::serialize( buffer, routine.get() );
+	buffer.seekg( 0 );
+	vtil::routine* roundtrip_raw = nullptr;
+	vtil::deserialize( buffer, roundtrip_raw );
+	std::unique_ptr<vtil::routine> roundtrip( roundtrip_raw );
+	return roundtrip != nullptr;
+}
+
+const vtil::instruction_desc* find_instruction_desc_by_name( const std::string& name_lower )
+{
+	std::lock_guard<std::mutex> guard( state_mutex );
+	if ( routine )
+	{
+		for ( const auto& [ vip, blk ] : routine->explored_blocks )
+		{
+			if ( !blk )
+				continue;
+			for ( const auto& insn : *blk )
+			{
+				if ( insn.base && to_lower_ascii( insn.base->name ) == name_lower )
+					return insn.base;
+			}
+		}
+	}
+	return nullptr;
+}
+
+std::string split_first_token( const std::string& line, std::string& rest )
+{
+	const std::string trimmed = trim_ascii( line );
+	if ( trimmed.empty() )
+	{
+		rest.clear();
+		return "";
+	}
+
+	size_t i = 0;
+	while ( i < trimmed.size() && !std::isspace( static_cast<unsigned char>( trimmed[ i ] ) ) )
+		++i;
+
+	const std::string token = trimmed.substr( 0, i );
+	rest = i < trimmed.size() ? trim_ascii( trimmed.substr( i ) ) : "";
+	return token;
+}
+
+bool split_operands_strict( const std::string& input, std::vector<std::string>& output, std::string& error )
+{
+	output.clear();
+	const std::string trimmed = trim_ascii( input );
+	if ( trimmed.empty() )
+		return true;
+
+	std::string cur;
+	for ( size_t i = 0; i < trimmed.size(); ++i )
+	{
+		const char c = trimmed[ i ];
+		if ( c == ',' )
+		{
+			const std::string token = trim_ascii( cur );
+			if ( token.empty() )
+			{
+				error = "invalid operand list: empty operand";
+				return false;
+			}
+			output.push_back( token );
+			cur.clear();
+		}
+		else
+		{
+			cur.push_back( c );
+		}
+	}
+
+	const std::string tail = trim_ascii( cur );
+	if ( tail.empty() )
+	{
+		error = "invalid operand list: trailing comma";
+		return false;
+	}
+	output.push_back( tail );
+	return true;
+}
+
+bool parse_bit_count( const std::string& text, bitcnt_t& bits )
+{
+	try
+	{
+		const unsigned long long value = std::stoull( text, nullptr, 10 );
+		if ( value == 0 || value > static_cast<unsigned long long>( vtil::arch::bit_count ) )
+			return false;
+		bits = static_cast<bitcnt_t>( value );
+		return true;
+	}
+	catch ( ... )
+	{
+		return false;
+	}
+}
+
+bool parse_immediate_operand_text( const std::string& token, bitcnt_t default_bits, bool require_explicit_bits, vtil::operand& out, std::string& error )
+{
+	std::string value_part = token;
+	bitcnt_t bit_count = default_bits;
+
+	const size_t colon = token.rfind( ':' );
+	if ( colon != std::string::npos )
+	{
+		value_part = trim_ascii( token.substr( 0, colon ) );
+		const std::string bits_part = trim_ascii( token.substr( colon + 1 ) );
+		if ( value_part.empty() || bits_part.empty() )
+		{
+			error = "invalid immediate format; expected <value>[:bits]";
+			return false;
+		}
+
+		if ( !parse_bit_count( bits_part, bit_count ) )
+		{
+			error = "invalid immediate bit count";
+			return false;
+		}
+	}
+	else if ( require_explicit_bits )
+	{
+		error = "immediate operand requires explicit :bits suffix";
+		return false;
+	}
+
+	bool is_negative = false;
+	uint64_t u64 = 0;
+	int64_t i64 = 0;
+	if ( !parse_immediate_value( value_part, is_negative, u64, i64 ) )
+	{
+		error = "invalid immediate value";
+		return false;
+	}
+
+	if ( is_negative )
+		out = vtil::operand( i64, bit_count );
+	else
+		out = vtil::operand( u64, bit_count );
+	return true;
+}
+
+std::unordered_map<std::string, vtil::register_desc> collect_known_registers_locked()
+{
+	std::unordered_map<std::string, vtil::register_desc> reg_map;
+	if ( !routine )
+		return reg_map;
+
+	for ( const auto& [ vip, blk ] : routine->explored_blocks )
+	{
+		if ( !blk ) continue;
+		for ( auto it = blk->begin(); it != blk->end(); ++it )
+		{
+			const auto& insn = *it;
+			for ( const auto& op : insn.operands )
+			{
+				if ( !op.is_register() )
+					continue;
+				const auto name = to_lower_ascii( op.reg().to_string() );
+				reg_map[ name ] = op.reg();
+			}
+		}
+	}
+
+	return reg_map;
+}
+
+bool parse_instruction_text_strict(
+	const std::string& text,
+	const vtil::instruction& old_insn,
+	const std::unordered_map<std::string, vtil::register_desc>& known_registers,
+	vtil::instruction& out_insn,
+	std::string& error )
+{
+	std::string operand_tail;
+	const std::string mnemonic_token = split_first_token( text, operand_tail );
+	if ( mnemonic_token.empty() )
+	{
+		error = "instruction text is empty";
+		return false;
+	}
+
+	const std::string mnemonic = to_lower_ascii( mnemonic_token );
+	const vtil::instruction_desc* desc = find_instruction_desc_by_name( mnemonic );
+	if ( !desc )
+	{
+		error = "unknown mnemonic: " + mnemonic_token;
+		return false;
+	}
+
+	std::vector<std::string> operand_tokens;
+	if ( !split_operands_strict( operand_tail, operand_tokens, error ) )
+		return false;
+
+	if ( operand_tokens.size() != desc->operand_count() )
+	{
+		error = "operand count mismatch; expected " + std::to_string( desc->operand_count() ) + ", got " + std::to_string( operand_tokens.size() );
+		return false;
+	}
+
+	std::vector<vtil::operand> operands;
+	operands.reserve( operand_tokens.size() );
+
+	for ( size_t i = 0; i < operand_tokens.size(); ++i )
+	{
+		const auto expected_type = desc->operand_types[ i ];
+		const std::string token = trim_ascii( operand_tokens[ i ] );
+		const bool token_has_alpha = std::any_of( token.begin(), token.end(), []( unsigned char c ) { return std::isalpha( c ); } );
+
+		vtil::operand parsed;
+		if ( expected_type == vtil::operand_type::read_reg || expected_type == vtil::operand_type::write || expected_type == vtil::operand_type::readwrite )
+		{
+			const auto reg_it = known_registers.find( to_lower_ascii( token ) );
+			if ( reg_it == known_registers.end() )
+			{
+				error = "unknown register operand at index " + std::to_string( i ) + ": " + token;
+				return false;
+			}
+			parsed = reg_it->second;
+		}
+		else if ( expected_type == vtil::operand_type::read_imm )
+		{
+			bitcnt_t default_bits = old_insn.operands.size() > i ? old_insn.operands[ i ].bit_count() : vtil::arch::bit_count;
+			if ( !parse_immediate_operand_text( token, default_bits, true, parsed, error ) )
+				return false;
+		}
+		else if ( expected_type == vtil::operand_type::read_any )
+		{
+			const auto reg_it = known_registers.find( to_lower_ascii( token ) );
+			if ( reg_it != known_registers.end() )
+			{
+				parsed = reg_it->second;
+			}
+			else
+			{
+				bitcnt_t default_bits = old_insn.operands.size() > i ? old_insn.operands[ i ].bit_count() : vtil::arch::bit_count;
+				if ( token_has_alpha && token.find( "0x" ) != 0 && token.find( "-0x" ) != 0 )
+				{
+					error = "read_any operand is not a known register and not a valid immediate at index " + std::to_string( i );
+					return false;
+				}
+				if ( !parse_immediate_operand_text( token, default_bits, false, parsed, error ) )
+					return false;
+			}
+		}
+		else
+		{
+			error = "unsupported operand type in descriptor";
+			return false;
+		}
+
+		operands.push_back( parsed );
+	}
+
+	out_insn = old_insn;
+	out_insn.base = desc;
+	out_insn.operands = std::move( operands );
+	return true;
+}
+
+bool edit_immediate_operand( vtil::vip_t block_vip, size_t instruction_index, size_t operand_index, const std::string& value_text, std::string& message_or_error )
+{
+	std::lock_guard<std::mutex> guard( state_mutex );
+
+	if ( !routine )
+	{
+		message_or_error = "no routine loaded";
+		return false;
+	}
+
+	auto blk_it = routine->explored_blocks.find( block_vip );
+	if ( blk_it == routine->explored_blocks.end() || !blk_it->second )
+	{
+		message_or_error = "target block not found";
+		return false;
+	}
+
+	vtil::basic_block* blk = blk_it->second;
+	if ( instruction_index >= blk->size() )
+	{
+		message_or_error = "instruction index out of range";
+		return false;
+	}
+
+	auto it = blk->begin();
+	for ( size_t i = 0; i < instruction_index; ++i )
+		++it;
+
+	vtil::instruction& insn = *it.operator+();
+	if ( operand_index >= insn.operands.size() )
+	{
+		message_or_error = "operand index out of range";
+		return false;
+	}
+
+	auto& op = insn.operands[ operand_index ];
+	if ( !op.is_immediate() )
+	{
+		message_or_error = "target operand is not immediate";
+		return false;
+	}
+
+	bool is_negative = false;
+	uint64_t new_u64 = 0;
+	int64_t new_i64 = 0;
+	if ( !parse_immediate_value( value_text, is_negative, new_u64, new_i64 ) )
+	{
+		message_or_error = "invalid immediate value";
+		return false;
+	}
+
+	const auto old_imm = op.imm();
+	const bool old_explicit_volatile = insn.explicit_volatile;
+
+	if ( is_negative )
+		op.imm().i64 = new_i64;
+	else
+		op.imm().u64 = new_u64;
+
+	try
+	{
+		if ( !insn.is_valid( true ) )
+		{
+			op.imm() = old_imm;
+			insn.explicit_volatile = old_explicit_volatile;
+			message_or_error = "edit produced invalid VTIL instruction";
+			return false;
+		}
+
+		if ( !validate_current_routine_roundtrip() )
+		{
+			op.imm() = old_imm;
+			insn.explicit_volatile = old_explicit_volatile;
+			message_or_error = "edited routine failed VTIL roundtrip validation";
+			return false;
+		}
+	}
+	catch ( const std::exception& ex )
+	{
+		op.imm() = old_imm;
+		insn.explicit_volatile = old_explicit_volatile;
+		message_or_error = std::string( "validation failed: " ) + ex.what();
+		return false;
+	}
+	catch ( ... )
+	{
+		op.imm() = old_imm;
+		insn.explicit_volatile = old_explicit_volatile;
+		message_or_error = "validation failed with unknown error";
+		return false;
+	}
+
+	last_error.clear();
+	message_or_error = "immediate operand updated";
+	return true;
+}
+
+bool export_current_routine( std::string& bytes, std::string& error )
+{
+	std::lock_guard<std::mutex> guard( state_mutex );
+	if ( !routine )
+	{
+		error = "no routine loaded";
+		return false;
+	}
+
+	try
+	{
+		std::stringstream out( std::ios::in | std::ios::out | std::ios::binary );
+		vtil::serialize( out, routine.get() );
+		bytes = out.str();
+		if ( bytes.empty() )
+		{
+			error = "serialized VTIL output is empty";
+			return false;
+		}
+		return true;
+	}
+	catch ( const std::exception& ex )
+	{
+		error = std::string( "serialize failed: " ) + ex.what();
+		return false;
+	}
+	catch ( ... )
+	{
+		error = "serialize failed with unknown error";
+		return false;
+	}
+}
+
+bool edit_instruction_text( vtil::vip_t block_vip, size_t instruction_index, const std::string& text, std::string& message_or_error )
+{
+	std::lock_guard<std::mutex> guard( state_mutex );
+
+	if ( !routine )
+	{
+		message_or_error = "no routine loaded";
+		return false;
+	}
+
+	auto blk_it = routine->explored_blocks.find( block_vip );
+	if ( blk_it == routine->explored_blocks.end() || !blk_it->second )
+	{
+		message_or_error = "target block not found";
+		return false;
+	}
+
+	vtil::basic_block* blk = blk_it->second;
+	if ( instruction_index >= blk->size() )
+	{
+		message_or_error = "instruction index out of range";
+		return false;
+	}
+
+	auto it = blk->begin();
+	for ( size_t i = 0; i < instruction_index; ++i )
+		++it;
+
+	vtil::instruction& target = *it.operator+();
+	const vtil::instruction old = target;
+	vtil::instruction parsed;
+	const auto known_registers = collect_known_registers_locked();
+
+	if ( !parse_instruction_text_strict( text, old, known_registers, parsed, message_or_error ) )
+		return false;
+
+	target = parsed;
+
+	try
+	{
+		if ( !target.is_valid( true ) )
+		{
+			target = old;
+			message_or_error = "edit produced invalid VTIL instruction";
+			return false;
+		}
+
+		if ( !validate_current_routine_roundtrip() )
+		{
+			target = old;
+			message_or_error = "edited routine failed VTIL roundtrip validation";
+			return false;
+		}
+	}
+	catch ( const std::exception& ex )
+	{
+		target = old;
+		message_or_error = std::string( "validation failed: " ) + ex.what();
+		return false;
+	}
+	catch ( ... )
+	{
+		target = old;
+		message_or_error = "validation failed with unknown error";
+		return false;
+	}
+
+	last_error.clear();
+	message_or_error = "instruction updated";
+	return true;
+}
+
+std::string make_download_name_utf8()
+{
+	std::string name = wide_to_utf8( file_name );
+	if ( name.empty() )
+		name = "edited.vtil";
+
+	for ( char& c : name )
+	{
+		if ( c == '"' || c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '<' || c == '>' || c == '|' )
+			c = '_';
+	}
+
+	if ( name.size() < 5 || name.substr( name.size() - 5 ) != ".vtil" )
+		name += ".vtil";
+	return name;
 }
 
 bool recv_exact( SOCKET sock, std::string& data, size_t bytes_needed )
@@ -576,7 +1172,7 @@ bool parse_content_length( const std::unordered_map<std::string, std::string>& h
 	}
 }
 
-void send_response( SOCKET sock, int status, const std::string& body, const std::string& content_type = "application/json" )
+void send_response( SOCKET sock, int status, const std::string& body, const std::string& content_type = "application/json", const std::string& extra_headers = "" )
 {
 	const char* reason = "OK";
 	if ( status == 400 )
@@ -592,10 +1188,15 @@ void send_response( SOCKET sock, int status, const std::string& body, const std:
 
 	std::ostringstream headers;
 	headers << "HTTP/1.1 " << status << " " << reason << "\r\n";
-	headers << "Content-Type: " << content_type << "; charset=utf-8\r\n";
+	if ( content_type == "application/octet-stream" )
+		headers << "Content-Type: " << content_type << "\r\n";
+	else
+		headers << "Content-Type: " << content_type << "; charset=utf-8\r\n";
 	headers << "Access-Control-Allow-Origin: *\r\n";
 	headers << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
 	headers << "Access-Control-Allow-Headers: Content-Type\r\n";
+	if ( !extra_headers.empty() )
+		headers << extra_headers;
 	headers << "Connection: close\r\n";
 	headers << "Content-Length: " << body.size() << "\r\n\r\n";
 
@@ -603,6 +1204,11 @@ void send_response( SOCKET sock, int status, const std::string& body, const std:
 	send( sock, header_str.data(), static_cast<int>( header_str.size() ), 0 );
 	if ( !body.empty() )
 		send( sock, body.data(), static_cast<int>( body.size() ), 0 );
+}
+
+void send_response( SOCKET sock, int status, const json& body, const std::string& content_type = "application/json", const std::string& extra_headers = "" )
+{
+	send_response( sock, status, body.dump(), content_type, extra_headers );
 }
 
 void handle_client( SOCKET client )
@@ -700,7 +1306,7 @@ void handle_client( SOCKET client )
 
 		if ( method == "OPTIONS" )
 		{
-			send_response( client, 204, "", "text/plain" );
+			send_response( client, 204, std::string{}, "text/plain" );
 		}
 		else if ( method == "GET" && path == "/health" )
 		{
@@ -710,15 +1316,17 @@ void handle_client( SOCKET client )
 		{
 			send_response( client, 200, make_state_json() );
 		}
+		else if ( method == "GET" && path == "/api/schema" )
+		{
+			send_response( client, 200, make_editor_schema_json() );
+		}
 		else if ( method == "POST" && path == "/api/upload" )
 		{
 			std::string name = "uploaded.vtil";
-			if ( !query.empty() )
-			{
-				size_t eq = query.find( "name=" );
-				if ( eq != std::string::npos )
-					name = url_decode( query.substr( eq + 5 ) );
-			}
+			const auto params = parse_query_pairs( query );
+			auto it_name = params.find( "name" );
+			if ( it_name != params.end() && !it_name->second.empty() )
+				name = it_name->second;
 
 			std::vector<uint8_t> bytes( body.begin(), body.end() );
 			const bool ok = load_routine_from_bytes( bytes, utf8_to_wide( name ) );
@@ -726,6 +1334,76 @@ void handle_client( SOCKET client )
 				send_response( client, 200, make_json_ok() );
 			else
 				send_response( client, 400, make_json_error( get_last_error_utf8() ) );
+		}
+		else if ( method == "POST" && path == "/api/edit/immediate" )
+		{
+			const auto params = parse_query_pairs( query );
+			vtil::vip_t block_vip = 0;
+			size_t instruction_index = 0;
+			size_t operand_index = 0;
+			std::string query_error;
+			if ( !parse_vip( params, "block", block_vip, query_error ) ||
+				 !parse_index( params, "instruction", instruction_index, query_error ) ||
+				 !parse_index( params, "operand", operand_index, query_error ) )
+			{
+				send_response( client, 400, make_json_error( query_error ) );
+				return;
+			}
+
+			auto value_it = params.find( "value" );
+			if ( value_it == params.end() || value_it->second.empty() )
+			{
+				send_response( client, 400, make_json_error( "missing query parameter: value" ) );
+				return;
+			}
+
+			std::string result_message;
+			const bool ok = edit_immediate_operand( block_vip, instruction_index, operand_index, value_it->second, result_message );
+			if ( ok )
+				send_response( client, 200, make_json_message( result_message ) );
+			else
+				send_response( client, 400, make_json_error( result_message ) );
+		}
+		else if ( method == "POST" && path == "/api/edit/instruction" )
+		{
+			const auto params = parse_query_pairs( query );
+			vtil::vip_t block_vip = 0;
+			size_t instruction_index = 0;
+			std::string query_error;
+			if ( !parse_vip( params, "block", block_vip, query_error ) ||
+				 !parse_index( params, "instruction", instruction_index, query_error ) )
+			{
+				send_response( client, 400, make_json_error( query_error ) );
+				return;
+			}
+
+			const std::string text = trim_ascii( body );
+			if ( text.empty() )
+			{
+				send_response( client, 400, make_json_error( "missing instruction text in request body" ) );
+				return;
+			}
+
+			std::string result_message;
+			const bool ok = edit_instruction_text( block_vip, instruction_index, text, result_message );
+			if ( ok )
+				send_response( client, 200, make_json_message( result_message ) );
+			else
+				send_response( client, 400, make_json_error( result_message ) );
+		}
+		else if ( method == "GET" && path == "/api/download" )
+		{
+			std::string output;
+			std::string error;
+			if ( !export_current_routine( output, error ) )
+			{
+				send_response( client, 400, make_json_error( error ) );
+				return;
+			}
+
+			const std::string download_name = make_download_name_utf8();
+			const std::string disposition = "Content-Disposition: attachment; filename=\"" + download_name + "\"\r\n";
+			send_response( client, 200, output, "application/octet-stream", disposition );
 		}
 		else
 		{
